@@ -1,0 +1,44 @@
+# Environment / secrets — YE KABHI PUSH NAHI HOGA
+.env
+.env.local
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Uploaded media / generated files
+uploads/
+*.mp3
+*.mp4
+*.wav
+*.m4a
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel
+npm-debug.log*
