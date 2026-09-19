@@ -12,7 +12,7 @@
 ## Deployment
 
 - Backend → Railway
-- Frontend → Streamlit Community Cloud
+- Frontend → Vercel
 - Database → Neon
 
 > Har version (8, 10, 12) ke baad test cases likhe jayenge.
