@@ -1,0 +1,29 @@
+# MeetLens backend — Python dependencies
+# Install: pip install -r requirements.txt
+# (Python 3.13 / 3.14 par tested)
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+
+# Database — SQLAlchemy + psycopg3 (Supabase / Neon PostgreSQL)
+SQLAlchemy==2.0.54
+psycopg[binary]==3.3.6
+
+# Settings / validation
+pydantic==2.13.5
+pydantic-settings==2.15.0
+email-validator==2.3.0
+
+# Auth
+PyJWT==2.14.0
+bcrypt==5.0.0
+
+# File uploads (audio)
+python-multipart==0.0.32
+
+# AI — summary, topics, concerns, follow-ups + Whisper transcription
+openai==3.16.2
+
+# Testing
+pytest==9.1.1
+httpx==0.28.1

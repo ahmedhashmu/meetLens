@@ -3,42 +3,54 @@
 **Owner:** Abdul Rafey Ali Khan
 **Deploy:** Vercel
 
-Next.js app jo backend FastAPI ki API ko call karti hai. Sirf UI ka kaam — AI aur database ka koi kaam yahan nahi hota.
+## Chalane ka tareeqa
 
-## Planned structure
+```bash
+cd frontend
+npm install
+cp ../.env.example .env.local     # phir Supabase ki asli values daalein
+npm run dev                       # http://localhost:3000
+```
+
+Zaroori env variables (Supabase → Project Settings → API):
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
+```
+
+## Vercel par deploy
+
+1. vercel.com → **Add New → Project** → GitHub se `meetLens` import karein
+2. **Root Directory** = `frontend` (ye zaroori hai, warna build fail hogi)
+3. **Environment Variables** mein upar wale dono daal dein
+4. **Deploy**
+
+## Screens
+
+| Route | Kaam |
+|---|---|
+| `/` | Counts + client add karna + clients ki list |
+| `/clients/[id]` | Client ki timeline, transcript paste karna, follow-up tracker |
+
+## Files
 
 ```
 frontend/
 ├── app/
-│   ├── login/             # login / signup
-│   ├── dashboard/         # counts, pending follow-ups
-│   ├── clients/           # client list + timeline
-│   ├── upload/            # transcript paste / audio upload
-│   └── followups/         # follow-up tracker
-├── components/            # reusable UI
-├── lib/api.ts             # backend ko call karne wale functions
-├── package.json
-└── next.config.js
+│   ├── layout.tsx              # header + global styles
+│   ├── page.tsx                # dashboard + clients
+│   ├── clients/[id]/page.tsx   # client detail
+│   └── globals.css
+└── lib/
+    ├── supabase.ts             # Supabase client + types
+    └── analyze.ts              # DEMO ke liye aarzi analysis
 ```
 
-## Kaam ka order
+## ⚠️ Zaroori baat — `lib/analyze.ts`
 
-- Week 5 — wireframes (`docs/wireframes/` mein)
-- Week 6–8 — login, clients, upload screens
-- Week 11–12 — dashboard, follow-ups, search
+Abhi transcript ki analysis **browser mein keyword matching se** hoti hai, AI se nahi.
+Ye sirf demo dikhane ke liye hai.
 
-## Backend se connection
-
-Frontend backend ko `NEXT_PUBLIC_API_URL` par call karega:
-
-- Local: `http://localhost:8000`
-- Production: Railway wala URL
-
-## Seekhne ke liye (Rafey ke liye)
-
-- TypeScript basics
-- Next.js App Router (`app/` folder routing)
-- `fetch` se API call karna
-- Tailwind CSS styling ke liye
-
-> Abhi khaali hai. Pehle wireframes banenge, phir Week 6 se `create-next-app` chalega.
+Asli AI analysis `backend/app/services/openai_service.py` mein likhi hui hai.
+Jab backend Railway par deploy ho jaye to `analyze.ts` hata kar us API ko call karna hai.

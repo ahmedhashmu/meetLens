@@ -4,6 +4,10 @@
 *.key
 secrets/
 
+# Local SQLite database (development only)
+*.db
+*.sqlite3
+
 # Python
 __pycache__/
 *.py[cod]
