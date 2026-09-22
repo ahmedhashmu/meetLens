@@ -13,6 +13,7 @@ export const supabase = createClient(
 
 export type Client = {
   id: string;
+  user_id: string;
   name: string;
   company: string | null;
   email: string | null;
@@ -39,6 +40,6 @@ export type FollowUp = {
   body: string;
   owner: string | null;
   due_date: string | null;
-  status: "pending" | "done";
+  status: "pending" | "done" | "dropped";
   created_at: string;
 };
