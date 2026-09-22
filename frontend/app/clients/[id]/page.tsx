@@ -18,6 +18,11 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
   const [transcript, setTranscript] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [fuBody, setFuBody] = useState("");
+  const [fuOwner, setFuOwner] = useState("");
+  const [fuDue, setFuDue] = useState("");
+  const [fuSaving, setFuSaving] = useState(false);
+
   async function load() {
     setError("");
     const [c, m, f] = await Promise.all([
@@ -91,14 +96,38 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
     load();
   }
 
-  async function toggle(f: FollowUp) {
-    const next = f.status === "pending" ? "done" : "pending";
+  async function setStatus(f: FollowUp, next: FollowUp["status"]) {
     setFollowups((prev) => prev.map((x) => (x.id === f.id ? { ...x, status: next } : x)));
     const { error } = await supabase.from("followups").update({ status: next }).eq("id", f.id);
     if (error) {
       setError(error.message);
       load();
     }
+  }
+
+  async function addFollowup(e: React.FormEvent) {
+    e.preventDefault();
+    if (!fuBody.trim()) return;
+    setFuSaving(true);
+    setError("");
+
+    const { error } = await supabase.from("followups").insert({
+      client_id: id,
+      body: fuBody.trim(),
+      owner: fuOwner.trim() || null,
+      due_date: fuDue || null,
+      status: "pending",
+    });
+
+    setFuSaving(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setFuBody("");
+    setFuOwner("");
+    setFuDue("");
+    load();
   }
 
   if (loading) return <p className="muted">Loading...</p>;
@@ -108,7 +137,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
 
   return (
     <main>
-      <p className="muted"><a href="/">← Saare clients</a></p>
+      <p className="muted"><a href="/">← All clients</a></p>
 
       <div className="card">
         <div style={{ fontSize: 20, fontWeight: 700 }}>{client.name}</div>
@@ -119,6 +148,11 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
         <div className="muted" style={{ marginTop: 8 }}>
           {meetings.length} meetings · {pending.length} pending follow-ups
         </div>
+        {client.notes && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+            {client.notes}
+          </div>
+        )}
       </div>
 
       <h2>New meeting — paste transcript</h2>
@@ -145,13 +179,39 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
       </form>
 
       <h2>Follow-up items</h2>
+      <form className="card" onSubmit={addFollowup}>
+        <label htmlFor="fb">New follow-up</label>
+        <input id="fb" value={fuBody} onChange={(e) => setFuBody(e.target.value)}
+               placeholder="e.g. Send updated proposal" required />
+        <div className="grid2">
+          <div>
+            <label htmlFor="fo">Owner</label>
+            <input id="fo" value={fuOwner} onChange={(e) => setFuOwner(e.target.value)} placeholder="Who's responsible" />
+          </div>
+          <div>
+            <label htmlFor="fd">Due date</label>
+            <input id="fd" type="date" value={fuDue} onChange={(e) => setFuDue(e.target.value)} />
+          </div>
+        </div>
+        <button disabled={fuSaving}>{fuSaving ? "Adding..." : "Add follow-up"}</button>
+      </form>
+
       <div className="card">
         {followups.length === 0 && <p className="muted">No follow-ups yet.</p>}
         {followups.map((f) => (
-          <div key={f.id} className={`fu ${f.status === "done" ? "done" : ""}`}>
-            <input type="checkbox" checked={f.status === "done"} onChange={() => toggle(f)} />
+          <div key={f.id} className={`fu ${f.status !== "pending" ? "done" : ""}`}>
+            <select
+              value={f.status}
+              onChange={(e) => setStatus(f, e.target.value as FollowUp["status"])}
+              style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
+            >
+              <option value="pending">Pending</option>
+              <option value="done">Done</option>
+              <option value="dropped">Dropped</option>
+            </select>
             <span className="body">
               {f.body}
+              {f.owner && <span className="muted"> · {f.owner}</span>}
               {f.due_date && <span className="muted"> · due {f.due_date}</span>}
             </span>
           </div>
