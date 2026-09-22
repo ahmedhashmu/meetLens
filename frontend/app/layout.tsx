@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "MeetLens",
-  description: "Client meetings ko summary aur follow-up items mein badlein",
+  description: "Turn client meetings into summaries and follow-up items",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

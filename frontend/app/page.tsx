@@ -33,7 +33,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!supabaseReady) {
       setLoading(false);
-      setError("Supabase env variables set nahi hain (NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY).");
+      setError("Supabase env variables are not set (NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY).");
       return;
     }
     load();
@@ -81,11 +81,11 @@ export default function HomePage() {
         </div>
       </div>
 
-      <h2>Naya client</h2>
+      <h2>New client</h2>
       <form className="card" onSubmit={addClient}>
         <div className="grid2">
           <div>
-            <label htmlFor="n">Naam *</label>
+            <label htmlFor="n">Name *</label>
             <input id="n" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div>
@@ -95,20 +95,20 @@ export default function HomePage() {
         </div>
         <label htmlFor="e">Email</label>
         <input id="e" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <button disabled={saving || !supabaseReady}>{saving ? "Save ho raha..." : "Client add karein"}</button>
+        <button disabled={saving || !supabaseReady}>{saving ? "Saving..." : "Add client"}</button>
         {error && <p className="err">{error}</p>}
       </form>
 
       <h2>Clients</h2>
-      {loading && <p className="muted">Load ho raha hai...</p>}
+      {loading && <p className="muted">Loading...</p>}
       {!loading && clients.length === 0 && !error && (
-        <p className="muted">Abhi koi client nahi. Upar se add karein.</p>
+        <p className="muted">No clients yet. Add one above.</p>
       )}
       {clients.map((c) => (
         <a key={c.id} href={`/clients/${c.id}`} className="card" style={{ display: "block", color: "inherit" }}>
           <div style={{ fontWeight: 600 }}>{c.name}</div>
           <div className="muted">
-            {c.company || "company nahi di"}
+            {c.company || "no company"}
             {c.email ? ` · ${c.email}` : ""}
           </div>
         </a>
