@@ -53,7 +53,7 @@ export function analyzeTranscript(transcript: string): LocalAnalysis {
   const summary =
     sents.slice(0, 3).join(" ").slice(0, 600) ||
     transcript.trim().slice(0, 300) ||
-    "Transcript itna chhota hai ke summary nahi ban saki.";
+    "Transcript is too short to summarize.";
 
   const freq = new Map<string, number>();
   for (const word of transcript.toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? []) {

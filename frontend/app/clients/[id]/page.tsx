@@ -36,7 +36,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
   useEffect(() => {
     if (!supabaseReady) {
       setLoading(false);
-      setError("Supabase env variables set nahi hain.");
+      setError("Supabase env variables are not set.");
       return;
     }
     load();
@@ -45,7 +45,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
   async function addMeeting(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || transcript.trim().length < 20) {
-      setError("Title zaroori hai aur transcript kam se kam 20 characters ka ho.");
+      setError("Title is required and transcript must be at least 20 characters.");
       return;
     }
 
@@ -70,7 +70,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
 
     if (mErr || !meeting) {
       setSaving(false);
-      setError(mErr?.message ?? "Meeting save nahi hui.");
+      setError(mErr?.message ?? "Failed to save meeting.");
       return;
     }
 
@@ -101,8 +101,8 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
     }
   }
 
-  if (loading) return <p className="muted">Load ho raha hai...</p>;
-  if (!client) return <p className="err">{error || "Client nahi mila."} <a href="/">Wapas</a></p>;
+  if (loading) return <p className="muted">Loading...</p>;
+  if (!client) return <p className="err">{error || "Client not found."} <a href="/">Back</a></p>;
 
   const pending = followups.filter((f) => f.status === "pending");
 
@@ -113,7 +113,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
       <div className="card">
         <div style={{ fontSize: 20, fontWeight: 700 }}>{client.name}</div>
         <div className="muted">
-          {client.company || "company nahi di"}
+          {client.company || "no company"}
           {client.email ? ` · ${client.email}` : ""}
         </div>
         <div className="muted" style={{ marginTop: 8 }}>
@@ -121,7 +121,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
         </div>
       </div>
 
-      <h2>Nayi meeting — transcript paste karein</h2>
+      <h2>New meeting — paste transcript</h2>
       <form className="card" onSubmit={addMeeting}>
         <div className="grid2">
           <div>
@@ -130,23 +130,23 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
                    placeholder="Q3 review call" required />
           </div>
           <div>
-            <label htmlFor="d">Tareekh</label>
+            <label htmlFor="d">Date</label>
             <input id="d" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
         <label htmlFor="tr">Transcript *</label>
         <textarea id="tr" value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Meeting ki baat cheet yahan paste karein..." required />
-        <button disabled={saving}>{saving ? "Analyse ho raha..." : "Save + analyse karein"}</button>
+                  placeholder="Paste the meeting conversation here..." required />
+        <button disabled={saving}>{saving ? "Analysing..." : "Save + analyse"}</button>
         {error && <p className="err">{error}</p>}
         <p className="muted" style={{ marginTop: 10 }}>
-          Abhi analysis local keyword-based hai (demo). Asli OpenAI analysis backend mein likhi hui hai.
+          Analysis is currently local keyword-based (demo). The real OpenAI analysis is written in the backend.
         </p>
       </form>
 
       <h2>Follow-up items</h2>
       <div className="card">
-        {followups.length === 0 && <p className="muted">Abhi koi follow-up nahi.</p>}
+        {followups.length === 0 && <p className="muted">No follow-ups yet.</p>}
         {followups.map((f) => (
           <div key={f.id} className={`fu ${f.status === "done" ? "done" : ""}`}>
             <input type="checkbox" checked={f.status === "done"} onChange={() => toggle(f)} />
@@ -159,7 +159,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
       </div>
 
       <h2>Timeline</h2>
-      {meetings.length === 0 && <p className="muted">Abhi koi meeting nahi.</p>}
+      {meetings.length === 0 && <p className="muted">No meetings yet.</p>}
       {meetings.map((m) => (
         <div key={m.id} className="card">
           <div className="row">
