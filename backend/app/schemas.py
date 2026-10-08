@@ -1,36 +1,22 @@
 """Request / response models."""
 from datetime import date, datetime
+from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class ORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+FollowUpStatus = Literal["pending", "done", "dropped"]
+
+
 # ---- Auth ---------------------------------------------------------
-class SignupIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-
-
-class LoginIn(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class UserOut(ORM):
+class UserOut(BaseModel):
     id: str
-    name: str
-    email: EmailStr
-    created_at: datetime
-
-
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserOut
+    email: str | None
 
 
 # ---- Clients ------------------------------------------------------
@@ -47,12 +33,20 @@ class ClientUpdate(BaseModel):
     email: EmailStr | None = None
     notes: str | None = None
 
+    @field_validator("name")
+    @classmethod
+    def name_not_null(cls, value):
+        # Naam khaali (null) nahi ho sakta — database mein NOT NULL hai
+        if value is None:
+            raise ValueError("name khaali nahi ho sakta")
+        return value
+
 
 class ClientOut(ORM):
-    id: str
+    id: UUID
     name: str
     company: str | None
-    email: EmailStr | None
+    email: str | None
     notes: str | None
     created_at: datetime
 
@@ -64,40 +58,43 @@ class ClientDetail(ClientOut):
 
 # ---- Analysis -----------------------------------------------------
 class AnalysisOut(ORM):
-    id: str
-    summary: str
+    summary: str | None
     topics: list[str]
     concerns: list[str]
     model_used: str | None
-    created_at: datetime
+    analyzed_at: datetime | None
 
 
 # ---- Meetings -----------------------------------------------------
 class MeetingIn(BaseModel):
-    client_id: str
+    client_id: UUID
     title: str = Field(min_length=1, max_length=200)
     meeting_date: date
     transcript: str = Field(min_length=20)
 
 
 class MeetingOut(ORM):
-    id: str
-    client_id: str
+    id: UUID
+    client_id: UUID
     title: str
     meeting_date: date
     source: str
     audio_filename: str | None
+    summary: str | None
+    analyzed_at: datetime | None
     created_at: datetime
 
 
 class MeetingDetail(MeetingOut):
     transcript: str
-    analysis: AnalysisOut | None = None
+    topics: list[str]
+    concerns: list[str]
+    model_used: str | None
     followups: list["FollowUpOut"] = []
 
 
 class TimelineItem(ORM):
-    id: str
+    id: UUID
     title: str
     meeting_date: date
     source: str
@@ -107,28 +104,29 @@ class TimelineItem(ORM):
 
 # ---- Follow-ups ---------------------------------------------------
 class FollowUpIn(BaseModel):
-    client_id: str
-    meeting_id: str | None = None
-    text: str = Field(min_length=1)
+    client_id: UUID
+    meeting_id: UUID | None = None
+    body: str = Field(min_length=1)
     owner: str | None = Field(default=None, max_length=120)
     due_date: date | None = None
 
 
 class FollowUpUpdate(BaseModel):
-    text: str | None = Field(default=None, min_length=1)
+    body: str | None = Field(default=None, min_length=1)
     owner: str | None = Field(default=None, max_length=120)
     due_date: date | None = None
-    status: str | None = Field(default=None, pattern="^(pending|done)$")
+    status: FollowUpStatus | None = None
 
 
 class FollowUpOut(ORM):
-    id: str
-    client_id: str
-    meeting_id: str | None
-    text: str
+    id: UUID
+    client_id: UUID
+    meeting_id: UUID | None
+    body: str
     owner: str | None
     due_date: date | None
     status: str
+    source: str
     created_at: datetime
     completed_at: datetime | None
 
@@ -145,8 +143,8 @@ class DashboardOut(BaseModel):
 
 
 class SearchHit(BaseModel):
-    meeting_id: str
-    client_id: str
+    meeting_id: UUID
+    client_id: UUID
     client_name: str
     title: str
     meeting_date: date

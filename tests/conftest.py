@@ -1,16 +1,38 @@
-"""Pytest setup — har test ke liye alag SQLite database."""
+"""Pytest setup — har test ke liye alag SQLite database.
+
+Login Supabase karta hai, is liye tests mein hum khud Supabase jaisa token
+(HS256, test secret ke saath) bana lete hain.
+"""
+import os
 import sys
+import uuid
 from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+# Settings import hone se pehle — asli database ya asli Supabase kabhi use na ho
+os.environ["DATABASE_URL"] = "sqlite://"  # in-memory, koi file nahi banti
+os.environ["SUPABASE_JWT_SECRET"] = "test-secret-for-pytest-only-0123456789"
+os.environ.pop("OPENAI_API_KEY", None)
+
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+def make_token(user_id: str | None = None, email: str = "ahmed@example.com") -> dict:
+    """Supabase jaisa access token bana kar Authorization header wapas karta hai."""
+    token = jwt.encode(
+        {"sub": user_id or str(uuid.uuid4()), "email": email, "aud": "authenticated"},
+        os.environ["SUPABASE_JWT_SECRET"],
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
@@ -35,14 +57,9 @@ def client(tmp_path):
 
 
 @pytest.fixture
-def auth(client):
-    """Ek user bana kar Authorization header wapas karta hai."""
-    response = client.post(
-        "/auth/signup",
-        json={"name": "Ahmed", "email": "ahmed@example.com", "password": "password123"},
-    )
-    assert response.status_code == 201, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+def auth():
+    """Ek logged-in user ka Authorization header."""
+    return make_token()
 
 
 @pytest.fixture

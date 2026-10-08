@@ -1,5 +1,6 @@
 """Pending follow-ups ki email reminders."""
 import logging
+import uuid
 import smtplib
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -7,17 +8,18 @@ from email.message import EmailMessage
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Client, FollowUp, User
+from app.models import Client, FollowUp
+from app.services.security import TokenUser
 
 logger = logging.getLogger(__name__)
 
 
-def _build_message(user: User, rows: list[tuple[FollowUp, Client]]) -> EmailMessage:
-    lines = [f"Assalam-o-alaikum {user.name},", "", "Ye aapke pending follow-up items hain:", ""]
+def _build_message(user: TokenUser, rows: list[tuple[FollowUp, Client]]) -> EmailMessage:
+    lines = ["Assalam-o-alaikum,", "", "Ye aapke pending follow-up items hain:", ""]
     for followup, client in rows:
         due = followup.due_date.isoformat() if followup.due_date else "koi due date nahi"
         owner = followup.owner or "assign nahi hua"
-        lines.append(f"- [{client.name}] {followup.text}")
+        lines.append(f"- [{client.name}] {followup.body}")
         lines.append(f"    owner: {owner} | due: {due}")
     lines += ["", "— MeetLens"]
 
@@ -36,7 +38,7 @@ def _send(msg: EmailMessage) -> None:
         server.send_message(msg)
 
 
-def send_reminders(db: Session, user: User, within_days: int = 3) -> tuple[int, int, str]:
+def send_reminders(db: Session, user: TokenUser, within_days: int = 3) -> tuple[int, int, str]:
     """User ko unke due/overdue follow-ups ki ek reminder email bhejta hai.
 
     Wapas karta hai: (bheje gaye items, chhore gaye items, tafseel)
@@ -47,7 +49,7 @@ def send_reminders(db: Session, user: User, within_days: int = 3) -> tuple[int, 
         db.query(FollowUp, Client)
         .join(Client, FollowUp.client_id == Client.id)
         .filter(
-            Client.user_id == user.id,
+            Client.user_id == uuid.UUID(user.id),
             FollowUp.status == "pending",
             FollowUp.due_date.isnot(None),
             FollowUp.due_date <= cutoff,
@@ -58,6 +60,9 @@ def send_reminders(db: Session, user: User, within_days: int = 3) -> tuple[int, 
 
     if not rows:
         return 0, 0, "Koi due follow-up nahi hai."
+
+    if not user.email:
+        return 0, len(rows), "User ka email login token mein nahi hai."
 
     if not settings.email_enabled:
         return 0, len(rows), "SMTP settings .env mein nahi hain, is liye email nahi bheji."

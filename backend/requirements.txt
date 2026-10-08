@@ -14,9 +14,8 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 email-validator==2.3.0
 
-# Auth
-PyJWT==2.14.0
-bcrypt==5.0.0
+# Auth — Supabase JWT verify (crypto = ES256/RS256 public keys)
+PyJWT[crypto]==2.14.0
 
 # File uploads (audio)
 python-multipart==0.0.32

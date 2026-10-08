@@ -21,14 +21,14 @@ uvicorn app.main:app --reload    # http://localhost:8000/docs
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest ../tests -q     # 12 tests
+.venv/bin/python -m pytest ../tests -q     # 14 tests
 ```
 
 ## API
 
 | Route | Kaam |
 |---|---|
-| `POST /auth/signup` · `/auth/login` · `GET /auth/me` | JWT auth, bcrypt hashed passwords |
+| `GET /auth/me` | Supabase token se current user (login/signup frontend par Supabase karta hai) |
 | `GET POST /clients` · `GET PATCH DELETE /clients/{id}` | Clients CRUD |
 | `GET /clients/{id}/timeline` | Client ki meetings ki timeline |
 | `POST /meetings` | Transcript paste karke meeting banana |
@@ -45,12 +45,12 @@ backend/app/
 ├── main.py         # FastAPI + CORS
 ├── config.py       # env variables (koi secret hardcode nahi)
 ├── database.py     # SQLAlchemy — Supabase/Neon ya SQLite
-├── models.py       # users, clients, meetings, analyses, followups
+├── models.py       # clients, meetings, followups (Supabase wali tables)
 ├── schemas.py      # request/response models
 ├── deps.py         # auth + ownership checks
 ├── routers/        # auth, clients, meetings, followups, dashboard
 └── services/
-    ├── security.py         # bcrypt + JWT
+    ├── security.py         # Supabase JWT verify
     ├── openai_service.py   # summary, topics, concerns, follow-ups
     ├── whisper_service.py  # audio → transcript
     └── email_service.py    # follow-up reminders
@@ -60,4 +60,5 @@ backend/app/
 
 - CORS mein Vercel ka URL allow karna hoga (`FRONTEND_URL`), warna browser calls block karega.
 - Har user sirf apne clients dekh sakta hai — ownership check `deps.py` mein hai.
-- Production mein `SECRET_KEY` default chhora to app start hi nahi hogi.
+- Production mein `SUPABASE_URL` na ho to app start hi nahi hogi.
+- Supabase par naye columns ke liye `sql/` ki files SQL Editor mein chalani hain.

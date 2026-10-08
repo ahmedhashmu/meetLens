@@ -1,29 +1,30 @@
 """Follow-up tracker aur email reminders."""
 from datetime import date, datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user, owned_client
-from app.models import Client, FollowUp, User
-from app.schemas import FollowUpIn, FollowUpOut, FollowUpUpdate, ReminderResult
+from app.deps import get_current_user, owned_client, owned_followup, owned_meeting, user_uuid
+from app.models import Client, FollowUp
+from app.schemas import FollowUpIn, FollowUpOut, FollowUpStatus, FollowUpUpdate, ReminderResult
 from app.services.email_service import send_reminders
+from app.services.security import TokenUser
 
 router = APIRouter(prefix="/followups", tags=["followups"])
 
 
-def _owned(followup_id: str, db: Session, user: User) -> FollowUp:
-    followup = db.get(FollowUp, followup_id)
-    if followup is None or followup.client.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Follow-up nahi mila.")
-    return followup
-
-
 @router.post("", response_model=FollowUpOut, status_code=201)
-def create_followup(payload: FollowUpIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_followup(payload: FollowUpIn, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     owned_client(payload.client_id, db, user)
-    followup = FollowUp(**payload.model_dump())
+    if payload.meeting_id is not None:
+        # Meeting bhi isi user ki aur isi client ki honi chahiye
+        meeting = owned_meeting(payload.meeting_id, db, user)
+        if meeting.client_id != payload.client_id:
+            raise HTTPException(status_code=400, detail="Ye meeting is client ki nahi hai.")
+
+    followup = FollowUp(**payload.model_dump(), source="manual")
     db.add(followup)
     db.commit()
     db.refresh(followup)
@@ -32,13 +33,13 @@ def create_followup(payload: FollowUpIn, db: Session = Depends(get_db), user: Us
 
 @router.get("", response_model=list[FollowUpOut])
 def list_followups(
-    client_id: str | None = None,
-    status: str | None = Query(default=None, pattern="^(pending|done)$"),
+    client_id: UUID | None = None,
+    status: FollowUpStatus | None = None,
     overdue: bool = False,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: TokenUser = Depends(get_current_user),
 ):
-    query = db.query(FollowUp).join(Client).filter(Client.user_id == user.id)
+    query = db.query(FollowUp).join(Client).filter(Client.user_id == user_uuid(user))
 
     if client_id:
         owned_client(client_id, db, user)
@@ -57,12 +58,12 @@ def list_followups(
 
 @router.patch("/{followup_id}", response_model=FollowUpOut)
 def update_followup(
-    followup_id: str,
+    followup_id: UUID,
     payload: FollowUpUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: TokenUser = Depends(get_current_user),
 ):
-    followup = _owned(followup_id, db, user)
+    followup = owned_followup(followup_id, db, user)
     changes = payload.model_dump(exclude_unset=True)
 
     if "status" in changes:
@@ -77,8 +78,8 @@ def update_followup(
 
 
 @router.delete("/{followup_id}", status_code=204)
-def delete_followup(followup_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    db.delete(_owned(followup_id, db, user))
+def delete_followup(followup_id: UUID, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
+    db.delete(owned_followup(followup_id, db, user))
     db.commit()
 
 
@@ -86,7 +87,7 @@ def delete_followup(followup_id: str, db: Session = Depends(get_db), user: User 
 def remind(
     within_days: int = Query(default=3, ge=0, le=60),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: TokenUser = Depends(get_current_user),
 ):
     """Due/overdue follow-ups ki reminder email bhejta hai."""
     sent, skipped, detail = send_reminders(db, user, within_days)
