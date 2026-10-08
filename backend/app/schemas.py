@@ -81,14 +81,14 @@ class MeetingOut(ORM):
     source: str
     audio_filename: str | None
     summary: str | None
+    topics: list[str]
+    concerns: list[str]
     analyzed_at: datetime | None
     created_at: datetime
 
 
 class MeetingDetail(MeetingOut):
     transcript: str
-    topics: list[str]
-    concerns: list[str]
     model_used: str | None
     followups: list["FollowUpOut"] = []
 

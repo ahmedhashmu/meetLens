@@ -1,22 +1,25 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { analyzeTranscript } from "@/lib/analyze";
-import { supabase, supabaseReady, type Client, type FollowUp, type Meeting } from "@/lib/supabase";
+import { supabaseReady } from "@/lib/supabase";
+import { api, apiReady, type ClientDetail, type FollowUp, type Meeting } from "@/lib/api";
 
 export default function ClientPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
-  const [client, setClient] = useState<Client | null>(null);
+  const [client, setClient] = useState<ClientDetail | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [followups, setFollowups] = useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [mode, setMode] = useState<"paste" | "audio">("paste");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [transcript, setTranscript] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [audio, setAudio] = useState<File | null>(null);
+  const [saving, setSaving] = useState("");
+  const [analysing, setAnalysing] = useState<string | null>(null);
 
   const [fuBody, setFuBody] = useState("");
   const [fuOwner, setFuOwner] = useState("");
@@ -25,82 +28,110 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
 
   async function load() {
     setError("");
-    const [c, m, f] = await Promise.all([
-      supabase.from("clients").select("*").eq("id", id).single(),
-      supabase.from("meetings").select("*").eq("client_id", id).order("meeting_date", { ascending: false }),
-      supabase.from("followups").select("*").eq("client_id", id).order("created_at", { ascending: false }),
-    ]);
-
-    if (c.error) setError(c.error.message);
-    setClient(c.data ?? null);
-    setMeetings(m.data ?? []);
-    setFollowups(f.data ?? []);
+    try {
+      const [c, m, f] = await Promise.all([
+        api<ClientDetail>(`/clients/${id}`),
+        api<Meeting[]>(`/meetings?client_id=${id}`),
+        api<FollowUp[]>(`/followups?client_id=${id}`),
+      ]);
+      setClient(c);
+      setMeetings(m);
+      setFollowups(f);
+    } catch (err) {
+      setError((err as Error).message);
+    }
     setLoading(false);
   }
 
   useEffect(() => {
-    if (!supabaseReady) {
+    if (!supabaseReady || !apiReady) {
       setLoading(false);
-      setError("Supabase env variables are not set.");
+      setError(!supabaseReady ? "Supabase env variables are not set." : "Backend URL is not set (NEXT_PUBLIC_API_URL).");
       return;
     }
     load();
   }, [id]);
 
+  async function analyse(meetingId: string) {
+    await api(`/meetings/${meetingId}/analyze`, { method: "POST" });
+  }
+
   async function addMeeting(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || transcript.trim().length < 20) {
-      setError("Title is required and transcript must be at least 20 characters.");
+    if (!title.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    if (mode === "paste" && transcript.trim().length < 20) {
+      setError("Transcript must be at least 20 characters.");
+      return;
+    }
+    if (mode === "audio" && !audio) {
+      setError("Choose an audio file.");
       return;
     }
 
-    setSaving(true);
     setError("");
-
-    const result = analyzeTranscript(transcript);
-
-    const { data: meeting, error: mErr } = await supabase
-      .from("meetings")
-      .insert({
-        client_id: id,
-        title: title.trim(),
-        meeting_date: date,
-        transcript: transcript.trim(),
-        summary: result.summary,
-        topics: result.topics,
-        concerns: result.concerns,
-      })
-      .select()
-      .single();
-
-    if (mErr || !meeting) {
-      setSaving(false);
-      setError(mErr?.message ?? "Failed to save meeting.");
+    let meeting: Meeting;
+    try {
+      if (mode === "paste") {
+        setSaving("Saving...");
+        meeting = await api<Meeting>("/meetings", {
+          method: "POST",
+          body: JSON.stringify({
+            client_id: id,
+            title: title.trim(),
+            meeting_date: date,
+            transcript: transcript.trim(),
+          }),
+        });
+      } else {
+        setSaving("Transcribing audio...");
+        const form = new FormData();
+        form.append("client_id", id);
+        form.append("title", title.trim());
+        form.append("meeting_date", date);
+        form.append("audio", audio as File);
+        meeting = await api<Meeting>("/meetings/upload", { method: "POST", body: form });
+      }
+    } catch (err) {
+      setSaving("");
+      setError((err as Error).message);
       return;
     }
 
-    if (result.followups.length > 0) {
-      await supabase.from("followups").insert(
-        result.followups.map((body) => ({
-          client_id: id,
-          meeting_id: meeting.id,
-          body,
-          status: "pending",
-        }))
-      );
+    setSaving("Analysing with AI...");
+    try {
+      await analyse(meeting.id);
+    } catch (err) {
+      setError(`Meeting saved, but analysis failed: ${(err as Error).message}`);
     }
 
-    setSaving(false);
+    setSaving("");
     setTitle("");
     setTranscript("");
+    setAudio(null);
+    load();
+  }
+
+  async function reanalyse(meetingId: string) {
+    setAnalysing(meetingId);
+    setError("");
+    try {
+      await analyse(meetingId);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setAnalysing(null);
     load();
   }
 
   async function setStatus(f: FollowUp, next: FollowUp["status"]) {
     setFollowups((prev) => prev.map((x) => (x.id === f.id ? { ...x, status: next } : x)));
-    const { error } = await supabase.from("followups").update({ status: next }).eq("id", f.id);
-    if (error) {
-      setError(error.message);
+    try {
+      await api(`/followups/${f.id}`, { method: "PATCH", body: JSON.stringify({ status: next }) });
+    } catch (err) {
+      setError((err as Error).message);
       load();
     }
   }
@@ -111,19 +142,23 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
     setFuSaving(true);
     setError("");
 
-    const { error } = await supabase.from("followups").insert({
-      client_id: id,
-      body: fuBody.trim(),
-      owner: fuOwner.trim() || null,
-      due_date: fuDue || null,
-      status: "pending",
-    });
-
-    setFuSaving(false);
-    if (error) {
-      setError(error.message);
+    try {
+      await api<FollowUp>("/followups", {
+        method: "POST",
+        body: JSON.stringify({
+          client_id: id,
+          body: fuBody.trim(),
+          owner: fuOwner.trim() || null,
+          due_date: fuDue || null,
+        }),
+      });
+    } catch (err) {
+      setFuSaving(false);
+      setError((err as Error).message);
       return;
     }
+
+    setFuSaving(false);
     setFuBody("");
     setFuOwner("");
     setFuDue("");
@@ -155,8 +190,18 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
         )}
       </div>
 
-      <h2>New meeting — paste transcript</h2>
+      <h2>New meeting</h2>
       <form className="card" onSubmit={addMeeting}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+          <button type="button" className={mode === "paste" ? "" : "ghost"} style={{ marginTop: 0 }}
+                  onClick={() => setMode("paste")}>
+            Paste transcript
+          </button>
+          <button type="button" className={mode === "audio" ? "" : "ghost"} style={{ marginTop: 0 }}
+                  onClick={() => setMode("audio")}>
+            Upload recording
+          </button>
+        </div>
         <div className="grid2">
           <div>
             <label htmlFor="t">Title *</label>
@@ -168,14 +213,21 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
             <input id="d" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        <label htmlFor="tr">Transcript *</label>
-        <textarea id="tr" value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Paste the meeting conversation here..." required />
-        <button disabled={saving}>{saving ? "Analysing..." : "Save + analyse"}</button>
+        {mode === "paste" ? (
+          <>
+            <label htmlFor="tr">Transcript *</label>
+            <textarea id="tr" value={transcript} onChange={(e) => setTranscript(e.target.value)}
+                      placeholder="Paste the meeting conversation here..." required />
+          </>
+        ) : (
+          <>
+            <label htmlFor="au">Recording * (mp3, m4a, wav, webm, mp4 — max 25 MB)</label>
+            <input id="au" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*"
+                   onChange={(e) => setAudio(e.target.files?.[0] ?? null)} />
+          </>
+        )}
+        <button disabled={Boolean(saving)}>{saving || "Save + analyse"}</button>
         {error && <p className="err">{error}</p>}
-        <p className="muted" style={{ marginTop: 10 }}>
-          Analysis is currently local keyword-based (demo). The real OpenAI analysis is written in the backend.
-        </p>
       </form>
 
       <h2>Follow-up items</h2>
@@ -213,6 +265,7 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
               {f.body}
               {f.owner && <span className="muted"> · {f.owner}</span>}
               {f.due_date && <span className="muted"> · due {f.due_date}</span>}
+              {f.source === "ai" && <span className="tag">AI</span>}
             </span>
           </div>
         ))}
@@ -224,9 +277,16 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
         <div key={m.id} className="card">
           <div className="row">
             <strong>{m.title}</strong>
-            <span className="muted">{m.meeting_date}</span>
+            <span className="muted">
+              {m.meeting_date}
+              {m.source === "audio" ? " · from recording" : ""}
+            </span>
           </div>
-          {m.summary && <p style={{ marginBottom: 10 }}>{m.summary}</p>}
+          {m.summary ? (
+            <p style={{ marginBottom: 10 }}>{m.summary}</p>
+          ) : (
+            <p className="muted">Not analysed yet.</p>
+          )}
           {m.topics?.length > 0 && (
             <div>{m.topics.map((t) => <span key={t} className="tag">{t}</span>)}</div>
           )}
@@ -236,6 +296,10 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
               {m.concerns.map((c, i) => <span key={i} className="tag warn">{c}</span>)}
             </div>
           )}
+          <button type="button" className="ghost" disabled={analysing === m.id}
+                  onClick={() => reanalyse(m.id)}>
+            {analysing === m.id ? "Analysing..." : m.summary ? "Re-analyse" : "Analyse"}
+          </button>
         </div>
       ))}
     </main>

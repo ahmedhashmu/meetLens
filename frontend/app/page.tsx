@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase, supabaseReady, type Client } from "@/lib/supabase";
+import { supabaseReady } from "@/lib/supabase";
+import { api, apiReady, type Client, type Dashboard, type SearchHit } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
-  const [counts, setCounts] = useState({ meetings: 0, pending: 0 });
+  const [counts, setCounts] = useState({ meetings: 0, pending: 0, overdue: 0 });
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
@@ -16,32 +17,29 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<
-    { id: string; title: string; summary: string | null; client_id: string; client_name: string }[] | null
-  >(null);
+  const [searchResults, setSearchResults] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
 
   async function load() {
     setError("");
-    const [c, m, f] = await Promise.all([
-      supabase.from("clients").select("*").order("created_at", { ascending: false }),
-      supabase.from("meetings").select("id", { count: "exact", head: true }),
-      supabase
-        .from("followups")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending"),
-    ]);
-
-    if (c.error) setError(c.error.message);
-    setClients(c.data ?? []);
-    setCounts({ meetings: m.count ?? 0, pending: f.count ?? 0 });
+    try {
+      const [c, d] = await Promise.all([api<Client[]>("/clients"), api<Dashboard>("/dashboard")]);
+      setClients(c);
+      setCounts({ meetings: d.total_meetings, pending: d.pending_followups, overdue: d.overdue_followups });
+    } catch (err) {
+      setError((err as Error).message);
+    }
     setLoading(false);
   }
 
   useEffect(() => {
-    if (!supabaseReady) {
+    if (!supabaseReady || !apiReady) {
       setLoading(false);
-      setError("Supabase env variables are not set (NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY).");
+      setError(
+        !supabaseReady
+          ? "Supabase env variables are not set (NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY)."
+          : "Backend URL is not set (NEXT_PUBLIC_API_URL)."
+      );
       return;
     }
     if (authLoading) return;
@@ -58,19 +56,23 @@ export default function HomePage() {
     setSaving(true);
     setError("");
 
-    const { error } = await supabase.from("clients").insert({
-      name: name.trim(),
-      company: company.trim() || null,
-      email: email.trim() || null,
-      notes: notes.trim() || null,
-      user_id: user.id,
-    });
-
-    setSaving(false);
-    if (error) {
-      setError(error.message);
+    try {
+      await api<Client>("/clients", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          company: company.trim() || null,
+          email: email.trim() || null,
+          notes: notes.trim() || null,
+        }),
+      });
+    } catch (err) {
+      setSaving(false);
+      setError((err as Error).message);
       return;
     }
+
+    setSaving(false);
     setName("");
     setCompany("");
     setEmail("");
@@ -81,31 +83,18 @@ export default function HomePage() {
   async function runSearch(e: React.FormEvent) {
     e.preventDefault();
     const term = search.trim();
-    if (!term) {
+    if (term.length < 2) {
       setSearchResults(null);
       return;
     }
     setSearching(true);
-    const { data, error } = await supabase
-      .from("meetings")
-      .select("id, title, summary, client_id, clients(name)")
-      .or(`summary.ilike.%${term}%,transcript.ilike.%${term}%,title.ilike.%${term}%`)
-      .order("meeting_date", { ascending: false })
-      .limit(20);
-    setSearching(false);
-    if (error) {
-      setError(error.message);
-      return;
+    try {
+      const data = await api<{ results: SearchHit[] }>(`/search?q=${encodeURIComponent(term)}`);
+      setSearchResults(data.results);
+    } catch (err) {
+      setError((err as Error).message);
     }
-    setSearchResults(
-      (data ?? []).map((m: any) => ({
-        id: m.id,
-        title: m.title,
-        summary: m.summary,
-        client_id: m.client_id,
-        client_name: m.clients?.name ?? "Unknown client",
-      }))
-    );
+    setSearching(false);
   }
 
   return (
@@ -123,6 +112,10 @@ export default function HomePage() {
           <div>
             <div style={{ fontSize: 28, fontWeight: 700 }}>{counts.pending}</div>
             <div className="muted">Pending follow-ups</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 700 }}>{counts.overdue}</div>
+            <div className="muted">Overdue</div>
           </div>
         </div>
       </div>
@@ -144,7 +137,7 @@ export default function HomePage() {
         <label htmlFor="notes">Notes</label>
         <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)}
                   placeholder="Anything worth remembering about this client..." />
-        <button disabled={saving || !supabaseReady}>{saving ? "Saving..." : "Add client"}</button>
+        <button disabled={saving || !supabaseReady || !apiReady}>{saving ? "Saving..." : "Add client"}</button>
         {error && <p className="err">{error}</p>}
       </form>
 
@@ -162,12 +155,14 @@ export default function HomePage() {
           <div style={{ marginTop: 14 }}>
             {searchResults.length === 0 && <p className="muted">No meetings match "{search}".</p>}
             {searchResults.map((r) => (
-              <a key={r.id} href={`/clients/${r.client_id}`} className="card" style={{ display: "block", color: "inherit" }}>
+              <a key={r.meeting_id} href={`/clients/${r.client_id}`} className="card" style={{ display: "block", color: "inherit" }}>
                 <div className="row">
                   <strong>{r.title}</strong>
-                  <span className="muted">{r.client_name}</span>
+                  <span className="muted">{r.client_name} · {r.meeting_date}</span>
                 </div>
-                {r.summary && <p className="muted" style={{ margin: "6px 0 0" }}>{r.summary}</p>}
+                <p className="muted" style={{ margin: "6px 0 0" }}>
+                  <span className="tag">{r.matched_in}</span> {r.snippet}
+                </p>
               </a>
             ))}
           </div>

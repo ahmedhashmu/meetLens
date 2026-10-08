@@ -46,7 +46,7 @@ MeetLens fixes this. A user uploads a meeting recording or pastes its transcript
 meetLens/
 ├── frontend/                # Next.js application (Rafey)
 │   ├── app/                 # App Router pages: dashboard, login, client detail
-│   ├── lib/                 # Supabase client, auth context, analysis helper
+│   ├── lib/                 # Supabase auth client, backend API helper
 │   └── package.json
 ├── backend/                 # Python FastAPI application (Ahmed)
 │   ├── app/
@@ -123,6 +123,7 @@ Create `frontend/.env.local`:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_or_publishable_key
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 Start the development server:
@@ -246,6 +247,7 @@ Set these environment variables in the Vercel dashboard (type **Config**, since 
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_API_URL` (the Railway backend URL)
 
 ### Backend — Railway
 
@@ -313,7 +315,6 @@ Solutions:
 - Audio files are limited to 25 MB (Whisper API limit)
 - Email reminders are sent on request, not on a schedule
 - Schema changes are plain SQL files in `backend/sql/`, run by hand in Supabase (no migration tool yet)
-- The frontend currently reads Supabase directly with a placeholder keyword-based analysis; connecting it to the FastAPI backend is in progress
 - No mobile app, payments or full CRM features (out of scope)
 
 ## Testing
