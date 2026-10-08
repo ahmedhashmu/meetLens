@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import Base, engine
+from app.database import DATABASE_URL, Base, engine
 from app.routers import auth, clients, dashboard, followups, meetings
 
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +14,10 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Demo ke liye tables khud bana leta hai. Baad mein Alembic migrations use hongi.
-    Base.metadata.create_all(bind=engine)
+    # Sirf local SQLite par tables khud banti hain. Supabase par tables pehle se hain
+    # (aur extra columns backend/sql/ ki files se aate hain), wahan kuch nahi banate.
+    if DATABASE_URL.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
     yield
 
 

@@ -6,9 +6,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user
-from app.models import Analysis, Client, FollowUp, Meeting, User
+from app.deps import get_current_user, user_uuid
+from app.models import Client, FollowUp, Meeting
 from app.schemas import DashboardOut, FollowUpOut, MeetingOut, SearchHit, SearchOut
+from app.services.security import TokenUser
 
 router = APIRouter(tags=["dashboard"])
 
@@ -16,10 +17,11 @@ SNIPPET_PAD = 90
 
 
 @router.get("/dashboard", response_model=DashboardOut)
-def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    clients = db.query(Client).filter(Client.user_id == user.id)
-    meetings = db.query(Meeting).join(Client).filter(Client.user_id == user.id)
-    followups = db.query(FollowUp).join(Client).filter(Client.user_id == user.id)
+def dashboard(db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
+    uid = user_uuid(user)
+    clients = db.query(Client).filter(Client.user_id == uid)
+    meetings = db.query(Meeting).join(Client).filter(Client.user_id == uid)
+    followups = db.query(FollowUp).join(Client).filter(Client.user_id == uid)
 
     return DashboardOut(
         total_clients=clients.count(),
@@ -57,20 +59,19 @@ def _snippet(text: str, needle: str) -> str:
 def search(
     q: str = Query(min_length=2, max_length=100),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: TokenUser = Depends(get_current_user),
 ):
     """Transcripts aur summaries mein keyword dhoondta hai."""
     pattern = f"%{q}%"
     rows = (
-        db.query(Meeting, Client, Analysis)
+        db.query(Meeting, Client)
         .join(Client, Meeting.client_id == Client.id)
-        .outerjoin(Analysis, Analysis.meeting_id == Meeting.id)
         .filter(
-            Client.user_id == user.id,
+            Client.user_id == user_uuid(user),
             or_(
                 Meeting.transcript.ilike(pattern),
                 Meeting.title.ilike(pattern),
-                Analysis.summary.ilike(pattern),
+                Meeting.summary.ilike(pattern),
             ),
         )
         .order_by(Meeting.meeting_date.desc())
@@ -79,12 +80,12 @@ def search(
     )
 
     results = []
-    for meeting, client, analysis in rows:
+    for meeting, client in rows:
         low = q.lower()
         if low in meeting.title.lower():
             where, source = "title", meeting.title
-        elif analysis and analysis.summary and low in analysis.summary.lower():
-            where, source = "summary", analysis.summary
+        elif meeting.summary and low in meeting.summary.lower():
+            where, source = "summary", meeting.summary
         else:
             where, source = "transcript", meeting.transcript
 

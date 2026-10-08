@@ -1,39 +1,51 @@
-"""Password hashing aur JWT tokens."""
-from datetime import datetime, timedelta, timezone
+"""Supabase ke login token (JWT) ko verify karta hai.
 
-import bcrypt
+Login aur signup frontend par Supabase karta hai. Frontend har request ke saath
+`Authorization: Bearer <access_token>` bhejta hai, aur backend yahan check karta
+hai ke token asli Supabase ka hai aur expire nahi hua.
+"""
+from dataclasses import dataclass
+from functools import lru_cache
+
 import jwt
 
 from app.config import settings
 
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+AUDIENCE = "authenticated"
 
 
-def verify_password(password: str, password_hash: str) -> bool:
+@dataclass
+class TokenUser:
+    id: str
+    email: str | None
+
+
+@lru_cache
+def _jwks_client() -> jwt.PyJWKClient:
+    base = settings.SUPABASE_URL.rstrip("/")
+    return jwt.PyJWKClient(f"{base}/auth/v1/.well-known/jwks.json", cache_keys=True)
+
+
+def decode_access_token(token: str) -> TokenUser | None:
+    """Token valid ho to user wapas karta hai, warna None."""
     try:
-        return bcrypt.checkpw(password.encode(), password_hash.encode())
-    except ValueError:
-        return False
-
-
-def create_access_token(user_id: str) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": user_id,
-        "iat": now,
-        "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-
-def decode_access_token(token: str) -> str | None:
-    """Token valid ho to user_id wapas karta hai, warna None."""
-    try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
-    except jwt.PyJWTError:
+        if settings.SUPABASE_JWT_SECRET:
+            # Purane Supabase projects (aur tests) — shared secret, HS256
+            payload = jwt.decode(
+                token, settings.SUPABASE_JWT_SECRET, algorithms=["HS256"], audience=AUDIENCE
+            )
+        elif settings.SUPABASE_URL:
+            # Naye projects — public key (ES256 / RS256) Supabase se aati hai
+            key = _jwks_client().get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token, key.key, algorithms=["ES256", "RS256"], audience=AUDIENCE
+            )
+        else:
+            return None
+    except (jwt.PyJWTError, jwt.PyJWKClientError):
         return None
-    return payload.get("sub")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    return TokenUser(id=user_id, email=payload.get("email"))

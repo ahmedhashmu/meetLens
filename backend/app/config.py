@@ -19,11 +19,12 @@ class Settings(BaseSettings):
     # Khaali chhor dein to local development ke liye SQLite use hogi.
     DATABASE_URL: str = "sqlite:///./meetlens.db"
 
-    # ---- Auth -----------------------------------------------------
-    # Production mein ye .env se aana ZAROORI hai.
-    SECRET_KEY: str = "dev-only-insecure-key-change-in-env"
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 ghante
+    # ---- Auth (Supabase) ------------------------------------------
+    # Login Supabase karta hai, backend sirf uska token verify karta hai.
+    # SUPABASE_URL se public keys (JWKS) le kar token check hota hai.
+    SUPABASE_URL: str | None = None
+    # Sirf purane HS256 projects aur tests ke liye. Naye projects ko zaroorat nahi.
+    SUPABASE_JWT_SECRET: str | None = None
 
     # ---- AI -------------------------------------------------------
     OPENAI_API_KEY: str | None = None
@@ -68,10 +69,10 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
-    if s.is_production and s.SECRET_KEY == Settings.model_fields["SECRET_KEY"].default:
+    if s.is_production and not (s.SUPABASE_URL or s.SUPABASE_JWT_SECRET):
         raise RuntimeError(
-            "SECRET_KEY production mein default nahi chhor sakte. "
-            ".env ya Railway ke variables mein asli value daalein."
+            "SUPABASE_URL production mein zaroori hai, warna login verify nahi ho sakta. "
+            ".env ya Railway ke variables mein daalein."
         )
     return s
 

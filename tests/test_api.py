@@ -1,10 +1,31 @@
 """MeetLens backend ke smoke tests."""
+import uuid
 from datetime import date
+
+import jwt
+from conftest import make_token
+
+from app.services import openai_service
 
 TRANSCRIPT = (
     "Client ne kaha ke dashboard ka design pasand aaya. "
     "Unhein budget ki thori concern hai. Hum agle hafte proposal bhejenge."
 )
+
+
+def _meeting(client, auth, client_id, title="Kickoff call"):
+    response = client.post(
+        "/meetings",
+        json={
+            "client_id": client_id,
+            "title": title,
+            "meeting_date": str(date.today()),
+            "transcript": TRANSCRIPT,
+        },
+        headers=auth,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
 
 
 def test_health(client):
@@ -13,34 +34,24 @@ def test_health(client):
     assert response.json()["status"] == "ok"
 
 
-def test_signup_duplicate_email_rejected(client):
-    payload = {"name": "A", "email": "dup@example.com", "password": "password123"}
-    assert client.post("/auth/signup", json=payload).status_code == 201
-    assert client.post("/auth/signup", json=payload).status_code == 409
+def test_endpoints_need_login(client):
+    for path in ("/clients", "/dashboard", "/followups", "/auth/me"):
+        assert client.get(path).status_code == 401
 
 
-def test_login_wrong_password(client, auth):
-    response = client.post(
-        "/auth/login", json={"email": "ahmed@example.com", "password": "ghalat-password"}
+def test_token_with_wrong_secret_rejected(client):
+    fake = jwt.encode(
+        {"sub": str(uuid.uuid4()), "aud": "authenticated"}, "kisi-aur-ka-secret-jo-32-bytes-se-lamba-hai", algorithm="HS256"
     )
+    response = client.get("/clients", headers={"Authorization": f"Bearer {fake}"})
     assert response.status_code == 401
 
 
-def test_password_is_hashed_not_plaintext(client, auth):
-    """Bilal wale code ka masla — password kabhi plaintext save nahi hona chahiye."""
-    from app.database import get_db
-    from app.main import app
-    from app.models import User
-
-    db = next(app.dependency_overrides[get_db]())
-    user = db.query(User).filter(User.email == "ahmed@example.com").first()
-    assert user.password_hash != "password123"
-    assert user.password_hash.startswith("$2")
-
-
-def test_endpoints_need_login(client):
-    for path in ("/clients", "/dashboard", "/followups"):
-        assert client.get(path).status_code == 401
+def test_me_returns_token_user(client):
+    user_id = str(uuid.uuid4())
+    response = client.get("/auth/me", headers=make_token(user_id, "wahaj@example.com"))
+    assert response.status_code == 200
+    assert response.json() == {"id": user_id, "email": "wahaj@example.com"}
 
 
 def test_client_crud(client, auth):
@@ -57,27 +68,17 @@ def test_client_crud(client, auth):
     assert client.get(f"/clients/{cid}", headers=auth).status_code == 404
 
 
-def test_other_users_client_is_hidden(client, auth, client_id):
-    other = client.post(
-        "/auth/signup",
-        json={"name": "Wahaj", "email": "wahaj@example.com", "password": "password123"},
-    ).json()
-    headers = {"Authorization": f"Bearer {other['access_token']}"}
-    assert client.get(f"/clients/{client_id}", headers=headers).status_code == 404
+def test_client_name_cannot_be_set_to_null(client, auth, client_id):
+    response = client.patch(f"/clients/{client_id}", json={"name": None}, headers=auth)
+    assert response.status_code == 422
+
+
+def test_other_users_client_is_hidden(client, client_id):
+    assert client.get(f"/clients/{client_id}", headers=make_token()).status_code == 404
 
 
 def test_meeting_create_and_search(client, auth, client_id):
-    created = client.post(
-        "/meetings",
-        json={
-            "client_id": client_id,
-            "title": "Kickoff call",
-            "meeting_date": str(date.today()),
-            "transcript": TRANSCRIPT,
-        },
-        headers=auth,
-    )
-    assert created.status_code == 201, created.text
+    _meeting(client, auth, client_id)
 
     timeline = client.get(f"/clients/{client_id}/timeline", headers=auth).json()
     assert len(timeline) == 1
@@ -89,26 +90,50 @@ def test_meeting_create_and_search(client, auth, client_id):
 
 
 def test_analyze_without_api_key_returns_503(client, auth, client_id):
-    meeting = client.post(
-        "/meetings",
-        json={
-            "client_id": client_id,
-            "title": "Call",
-            "meeting_date": str(date.today()),
-            "transcript": TRANSCRIPT,
-        },
-        headers=auth,
-    ).json()
-
+    meeting = _meeting(client, auth, client_id)
     response = client.post(f"/meetings/{meeting['id']}/analyze", headers=auth)
     assert response.status_code == 503
     assert "OPENAI_API_KEY" in response.json()["detail"]
 
 
+def test_reanalyze_does_not_duplicate_followups(client, auth, client_id, monkeypatch):
+    monkeypatch.setattr(
+        openai_service,
+        "analyse_transcript",
+        lambda transcript: openai_service.AnalysisResult(
+            summary="Client ko design pasand aaya, budget ki fikr hai.",
+            topics=["design", "budget"],
+            concerns=["budget"],
+            followups=[{"text": "Proposal bhejna", "owner": "Ahmed", "due_date": "2026-10-20"}],
+            model_used="test-model",
+        ),
+    )
+    meeting = _meeting(client, auth, client_id)
+    client.post(
+        "/followups",
+        json={"client_id": client_id, "meeting_id": meeting["id"], "body": "Haath se likha"},
+        headers=auth,
+    )
+
+    first = client.post(f"/meetings/{meeting['id']}/analyze", headers=auth)
+    assert first.status_code == 200, first.text
+    assert first.json()["summary"].startswith("Client ko design")
+    client.post(f"/meetings/{meeting['id']}/analyze", headers=auth)
+
+    items = client.get("/followups", params={"client_id": client_id}, headers=auth).json()
+    assert sorted(f["body"] for f in items) == ["Haath se likha", "Proposal bhejna"]
+    ai_item = next(f for f in items if f["source"] == "ai")
+    assert ai_item["owner"] == "Ahmed"
+    assert ai_item["due_date"] == "2026-10-20"
+
+    detail = client.get(f"/meetings/{meeting['id']}", headers=auth).json()
+    assert detail["topics"] == ["design", "budget"]
+
+
 def test_followup_lifecycle(client, auth, client_id):
     created = client.post(
         "/followups",
-        json={"client_id": client_id, "text": "Proposal bhejna hai", "owner": "Ahmed"},
+        json={"client_id": client_id, "body": "Proposal bhejna hai", "owner": "Ahmed"},
         headers=auth,
     )
     assert created.status_code == 201
@@ -120,15 +145,28 @@ def test_followup_lifecycle(client, auth, client_id):
     assert done["status"] == "done"
     assert done["completed_at"] is not None
 
+    dropped = client.patch(f"/followups/{fid}", json={"status": "dropped"}, headers=auth).json()
+    assert dropped["status"] == "dropped"
+    assert dropped["completed_at"] is None
+
     assert client.get("/followups", params={"status": "pending"}, headers=auth).json() == []
 
 
-def test_dashboard_counts(client, auth, client_id):
-    client.post(
+def test_followup_cannot_use_another_users_meeting(client, auth, client_id):
+    other = make_token()
+    other_client = client.post("/clients", json={"name": "Doosra"}, headers=other).json()
+    other_meeting = _meeting(client, other, other_client["id"])
+
+    response = client.post(
         "/followups",
-        json={"client_id": client_id, "text": "Call karna hai"},
+        json={"client_id": client_id, "meeting_id": other_meeting["id"], "body": "Chori"},
         headers=auth,
     )
+    assert response.status_code == 404
+
+
+def test_dashboard_counts(client, auth, client_id):
+    client.post("/followups", json={"client_id": client_id, "body": "Call karna hai"}, headers=auth)
     data = client.get("/dashboard", headers=auth).json()
     assert data["total_clients"] == 1
     assert data["pending_followups"] == 1

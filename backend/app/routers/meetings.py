@@ -1,34 +1,38 @@
 """Meetings — transcript paste, audio upload aur AI analysis."""
 from datetime import date as date_type
+from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, owned_client, owned_meeting
-from app.models import Analysis, FollowUp, Meeting, User
+from app.models import FollowUp, Meeting
 from app.schemas import AnalysisOut, MeetingDetail, MeetingIn, MeetingOut
 from app.services import openai_service, whisper_service
+from app.services.security import TokenUser
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 
-def _save_analysis(db: Session, meeting: Meeting) -> Analysis:
-    """Transcript analyse karke analysis + follow-ups save karta hai."""
+def _save_analysis(db: Session, meeting: Meeting) -> Meeting:
+    """Transcript analyse karke meeting par summary/topics/concerns aur follow-ups save karta hai."""
     result = openai_service.analyse_transcript(meeting.transcript)
 
-    if meeting.analysis:
-        db.delete(meeting.analysis)
-        db.flush()
+    meeting.summary = result.summary
+    meeting.topics = result.topics
+    meeting.concerns = result.concerns
+    meeting.model_used = result.model_used
+    meeting.analyzed_at = datetime.now(timezone.utc)
 
-    analysis = Analysis(
-        meeting_id=meeting.id,
-        summary=result.summary,
-        topics=result.topics,
-        concerns=result.concerns,
-        model_used=result.model_used,
-    )
-    db.add(analysis)
+    # Dobara analyze karne par purane AI follow-ups hata do, warna har dafa double ho jate hain.
+    # User ke khud likhe (manual) aur complete ho chuke follow-ups ko nahi chherte.
+    db.query(FollowUp).filter(
+        FollowUp.meeting_id == meeting.id,
+        FollowUp.source == "ai",
+        FollowUp.status == "pending",
+    ).delete(synchronize_session="fetch")
 
     for item in result.followups:
         due = None
@@ -41,19 +45,20 @@ def _save_analysis(db: Session, meeting: Meeting) -> Analysis:
             FollowUp(
                 client_id=meeting.client_id,
                 meeting_id=meeting.id,
-                text=item["text"],
+                body=item["text"],
                 owner=item["owner"],
                 due_date=due,
+                source="ai",
             )
         )
 
     db.commit()
-    db.refresh(analysis)
-    return analysis
+    db.refresh(meeting)
+    return meeting
 
 
 @router.post("", response_model=MeetingDetail, status_code=201)
-def create_meeting(payload: MeetingIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_meeting(payload: MeetingIn, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     """Transcript paste karke meeting banata hai."""
     owned_client(payload.client_id, db, user)
     meeting = Meeting(**payload.model_dump(), source="paste")
@@ -65,12 +70,12 @@ def create_meeting(payload: MeetingIn, db: Session = Depends(get_db), user: User
 
 @router.post("/upload", response_model=MeetingDetail, status_code=201)
 async def upload_audio(
-    client_id: str = Form(...),
+    client_id: UUID = Form(...),
     title: str = Form(...),
     meeting_date: date_type = Form(...),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: TokenUser = Depends(get_current_user),
 ):
     """Audio upload karke Whisper se transcript banata hai."""
     owned_client(client_id, db, user)
@@ -94,18 +99,18 @@ async def upload_audio(
 
 
 @router.post("/{meeting_id}/analyze", response_model=AnalysisOut)
-def analyze(meeting_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def analyze(meeting_id: UUID, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     """Meeting ka transcript AI se analyse karta hai."""
     return _save_analysis(db, owned_meeting(meeting_id, db, user))
 
 
 @router.get("/{meeting_id}", response_model=MeetingDetail)
-def get_meeting(meeting_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_meeting(meeting_id: UUID, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     return owned_meeting(meeting_id, db, user)
 
 
 @router.get("", response_model=list[MeetingOut])
-def list_meetings(client_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_meetings(client_id: UUID, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     owned_client(client_id, db, user)
     return (
         db.query(Meeting)
@@ -116,6 +121,6 @@ def list_meetings(client_id: str, db: Session = Depends(get_db), user: User = De
 
 
 @router.delete("/{meeting_id}", status_code=204)
-def delete_meeting(meeting_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_meeting(meeting_id: UUID, db: Session = Depends(get_db), user: TokenUser = Depends(get_current_user)):
     db.delete(owned_meeting(meeting_id, db, user))
     db.commit()
