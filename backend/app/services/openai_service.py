@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 
 from fastapi import HTTPException
 
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,7 @@ Rules:
 - "followups" are concrete promised actions only, not vague intentions.
 - Use null for owner/due_date when the transcript does not state them.
 - Never invent facts that are not in the transcript.
+- Resolve relative dates ("Friday", "October 20th", "today") against the meeting date.
 - Return at most 10 topics, 10 concerns and 15 followups."""
 
 
@@ -88,34 +88,42 @@ def _parse(raw: str, model: str) -> AnalysisResult:
     )
 
 
-def analyse_transcript(transcript: str, retries: int = 2) -> AnalysisResult:
-    """OpenAI ko call karke structured analysis wapas karta hai."""
-    if not settings.ai_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="OPENAI_API_KEY set nahi hai, is liye analysis nahi ho sakti.",
-        )
+def analyse_transcript(transcript: str, meeting_date=None, retries: int = 2) -> AnalysisResult:
+    """AI (Gemini ya OpenAI) ko call karke structured analysis wapas karta hai."""
+    from openai import OpenAIError
 
-    from openai import OpenAI, OpenAIError
+    from app.services.ai_client import extra_options, get_client
 
+    client, model, provider = get_client()
     text = transcript.strip()[:MAX_TRANSCRIPT_CHARS]
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    # Date ke baghair model "October 20th" ka saal khud andaze se rakh deta hai
+    when = f"Meeting date: {meeting_date.isoformat()}\n" if meeting_date else ""
     last_error: Exception | None = None
 
     for attempt in range(1, retries + 2):
         try:
             response = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
+                model=model,
                 response_format={"type": "json_object"},
                 temperature=0.2,
+                **extra_options(provider),
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Meeting transcript:\n\n{text}"},
+                    {"role": "user", "content": f"{when}Meeting transcript:\n\n{text}"},
                 ],
             )
-            return _parse(response.choices[0].message.content or "", settings.OPENAI_MODEL)
+            return _parse(_strip_fences(response.choices[0].message.content or ""), model)
         except (OpenAIError, ValueError) as exc:
             last_error = exc
             logger.warning("Analysis attempt %s failed: %s", attempt, exc)
 
     raise HTTPException(status_code=502, detail=f"AI analysis fail ho gayi: {last_error}")
+
+
+def _strip_fences(raw: str) -> str:
+    """Kuch models JSON ko ```json ... ``` mein lapet dete hain — wo hata do."""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        raw = raw.rsplit("```", 1)[0]
+    return raw.strip()
