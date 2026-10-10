@@ -93,14 +93,14 @@ def test_analyze_without_api_key_returns_503(client, auth, client_id):
     meeting = _meeting(client, auth, client_id)
     response = client.post(f"/meetings/{meeting['id']}/analyze", headers=auth)
     assert response.status_code == 503
-    assert "OPENAI_API_KEY" in response.json()["detail"]
+    assert "GEMINI_API_KEY" in response.json()["detail"]
 
 
 def test_reanalyze_does_not_duplicate_followups(client, auth, client_id, monkeypatch):
     monkeypatch.setattr(
         openai_service,
         "analyse_transcript",
-        lambda transcript: openai_service.AnalysisResult(
+        lambda transcript, meeting_date=None: openai_service.AnalysisResult(
             summary="Client ko design pasand aaya, budget ki fikr hai.",
             topics=["design", "budget"],
             concerns=["budget"],
@@ -193,3 +193,30 @@ def test_cors_allows_any_vercel_deploy_url(client):
     assert allowed("https://meet-lens-cnikuzhpi-syed-muhammad-bilal-hassan.vercel.app")
     assert allowed("https://meet-lens-b1rkg3o3n-syed-muhammad-bilal-hassan.vercel.app")
     assert not allowed("https://evil-site.vercel.app")
+
+
+def test_gemini_key_wins_over_openai(monkeypatch):
+    from app.config import settings
+    from app.services import ai_client
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gemini-key")
+    client, model, provider = ai_client.get_client()
+    assert provider == "gemini"
+    assert model == settings.GEMINI_MODEL
+    assert "generativelanguage.googleapis.com" in str(client.base_url)
+
+
+def test_gemini_rejects_audio_format_it_cannot_read(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.config import settings
+    from app.services import whisper_service
+
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gemini-key")
+    try:
+        whisper_service.transcribe(b"x" * 100, "call.webm")
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("webm should be rejected for Gemini")

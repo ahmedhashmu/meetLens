@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     WHISPER_MODEL: str = "whisper-1"
+    # Google Gemini (free tier). Agar ye set hai to OpenAI ki jagah Gemini use hota hai.
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-flash-latest"
 
     # ---- Frontend / CORS ------------------------------------------
     # Comma se alag kar ke ek se zyada URL bhi de sakte hain.
@@ -62,7 +65,15 @@ class Settings(BaseSettings):
 
     @property
     def ai_enabled(self) -> bool:
-        return bool(self.OPENAI_API_KEY)
+        return bool(self.GEMINI_API_KEY or self.OPENAI_API_KEY)
+
+    @property
+    def ai_provider(self) -> str | None:
+        if self.GEMINI_API_KEY:
+            return "gemini"
+        if self.OPENAI_API_KEY:
+            return "openai"
+        return None
 
     @property
     def email_enabled(self) -> bool:

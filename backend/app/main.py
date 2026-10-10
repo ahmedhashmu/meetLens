@@ -51,5 +51,6 @@ def health() -> dict:
         "status": "ok",
         "environment": settings.ENVIRONMENT,
         "ai_enabled": settings.ai_enabled,
+        "ai_provider": settings.ai_provider,
         "email_enabled": settings.email_enabled,
     }

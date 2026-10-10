@@ -253,9 +253,9 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
             ) : (
               <>
                 <label htmlFor="au">Recording</label>
-                <input id="au" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*"
+                <input id="au" type="file" accept=".mp3,.m4a,.wav,audio/mpeg,audio/wav,audio/mp4"
                        onChange={(e) => setAudio(e.target.files?.[0] ?? null)} />
-                <p className="note" style={{ marginTop: 6, fontSize: 13 }}>mp3, m4a, wav, webm or mp4 · up to 25 MB</p>
+                <p className="note" style={{ marginTop: 6, fontSize: 13 }}>mp3, m4a or wav · up to 14 MB</p>
               </>
             )}
             <div className="form-actions">

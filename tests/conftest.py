@@ -11,7 +11,9 @@ from pathlib import Path
 # Settings import hone se pehle — asli database ya asli Supabase kabhi use na ho
 os.environ["DATABASE_URL"] = "sqlite://"  # in-memory, koi file nahi banti
 os.environ["SUPABASE_JWT_SECRET"] = "test-secret-for-pytest-only-0123456789"
-os.environ.pop("OPENAI_API_KEY", None)
+# Khaali = AI band (.env files mein key ho tab bhi tests kabhi asli AI ko call na karein)
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 
 import jwt  # noqa: E402
 import pytest  # noqa: E402

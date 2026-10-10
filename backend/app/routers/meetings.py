@@ -18,7 +18,7 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 def _save_analysis(db: Session, meeting: Meeting) -> Meeting:
     """Transcript analyse karke meeting par summary/topics/concerns aur follow-ups save karta hai."""
-    result = openai_service.analyse_transcript(meeting.transcript)
+    result = openai_service.analyse_transcript(meeting.transcript, meeting.meeting_date)
 
     meeting.summary = result.summary
     meeting.topics = result.topics

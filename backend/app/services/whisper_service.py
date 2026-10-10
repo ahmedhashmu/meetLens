@@ -1,4 +1,5 @@
 """Audio file ko Whisper API se transcript mein badalta hai."""
+import base64
 import io
 import logging
 
@@ -34,30 +35,67 @@ def validate_audio(filename: str | None, size_bytes: int) -> str:
     return ext
 
 
+# Gemini ko audio ka format batana padta hai; ye wale woh samajhta hai
+GEMINI_AUDIO_FORMATS = {".mp3": "mp3", ".mpeg": "mp3", ".mpga": "mp3", ".wav": "wav", ".m4a": "aac"}
+GEMINI_MAX_MB = 14  # base64 ke baad ~20 MB, jo Gemini ki inline limit hai
+
+
 def transcribe(audio_bytes: bytes, filename: str) -> str:
-    """Audio bytes se transcript text wapas karta hai."""
-    if not settings.ai_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="OPENAI_API_KEY set nahi hai, is liye transcription nahi ho sakti.",
-        )
+    """Audio bytes se transcript text wapas karta hai (Gemini ya OpenAI Whisper)."""
+    from openai import OpenAIError
 
-    from openai import OpenAI, OpenAIError
+    from app.services.ai_client import extra_options, get_client
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    buffer = io.BytesIO(audio_bytes)
-    buffer.name = filename
+    client, model, provider = get_client()
 
     try:
-        result = client.audio.transcriptions.create(
-            model=settings.WHISPER_MODEL, file=buffer, response_format="text"
-        )
+        if provider == "gemini":
+            text = _transcribe_gemini(client, model, audio_bytes, filename, extra_options(provider))
+        else:
+            buffer = io.BytesIO(audio_bytes)
+            buffer.name = filename
+            result = client.audio.transcriptions.create(
+                model=settings.WHISPER_MODEL, file=buffer, response_format="text"
+            )
+            text = result if isinstance(result, str) else getattr(result, "text", "")
     except OpenAIError as exc:
-        logger.warning("Whisper failed for %s: %s", filename, exc)
+        logger.warning("Transcription failed for %s: %s", filename, exc)
         raise HTTPException(status_code=502, detail=f"Transcription fail ho gayi: {exc}") from exc
 
-    text = result if isinstance(result, str) else getattr(result, "text", "")
     text = (text or "").strip()
     if not text:
         raise HTTPException(status_code=422, detail="Audio mein koi baat samajh nahi aayi.")
     return text
+
+
+def _transcribe_gemini(client, model: str, audio_bytes: bytes, filename: str, options: dict) -> str:
+    ext = "." + filename.rsplit(".", 1)[-1].lower()
+    fmt = GEMINI_AUDIO_FORMATS.get(ext)
+    if fmt is None:
+        allowed = ", ".join(sorted(GEMINI_AUDIO_FORMATS))
+        raise HTTPException(status_code=400, detail=f"Gemini ke saath sirf ye formats chalte hain: {allowed}")
+    if len(audio_bytes) > GEMINI_MAX_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File {GEMINI_MAX_MB} MB se bari hai.")
+
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0,
+        **options,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Transcribe this meeting recording word for word. "
+                        "Put each speaker on a new line. Return only the transcript.",
+                    },
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": base64.b64encode(audio_bytes).decode(), "format": fmt},
+                    },
+                ],
+            }
+        ],
+    )
+    return response.choices[0].message.content or ""
