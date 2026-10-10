@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # ---- Frontend / CORS ------------------------------------------
     # Comma se alag kar ke ek se zyada URL bhi de sakte hain.
     FRONTEND_URL: str = "http://localhost:3000"
+    # Vercel har deploy par naya URL deta hai (meet-lens-<random>-...vercel.app).
+    # Ye pattern us project ke saare URLs allow karta hai.
+    FRONTEND_URL_REGEX: str | None = r"https://meet-lens-[a-z0-9]+-syed-muhammad-bilal-hassan\.vercel\.app"
 
     # ---- Audio uploads --------------------------------------------
     UPLOAD_DIR: str = "uploads"

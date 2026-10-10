@@ -180,3 +180,16 @@ def test_bad_audio_format_rejected(client, auth, client_id):
         headers=auth,
     )
     assert response.status_code == 400
+
+
+def test_cors_allows_any_vercel_deploy_url(client):
+    def allowed(origin):
+        response = client.options(
+            "/clients",
+            headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
+        )
+        return response.headers.get("access-control-allow-origin") == origin
+
+    assert allowed("https://meet-lens-cnikuzhpi-syed-muhammad-bilal-hassan.vercel.app")
+    assert allowed("https://meet-lens-b1rkg3o3n-syed-muhammad-bilal-hassan.vercel.app")
+    assert not allowed("https://evil-site.vercel.app")
