@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { supabaseReady } from "@/lib/supabase";
 import { api, apiReady, type ClientDetail, type FollowUp, type Meeting } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 
 export default function ClientPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -165,143 +166,173 @@ export default function ClientPage({ params }: { params: Promise<{ id: string }>
     load();
   }
 
-  if (loading) return <p className="muted">Loading...</p>;
-  if (!client) return <p className="err">{error || "Client not found."} <a href="/">Back</a></p>;
+  if (loading) return <p className="muted">Loading…</p>;
+  if (!client) return <p className="err">{error || "Client not found."} <a href="/">Back to clients</a></p>;
 
-  const pending = followups.filter((f) => f.status === "pending");
+  const today = new Date().toISOString().slice(0, 10);
+  const open = followups.filter((f) => f.status === "pending");
+  const closed = followups.filter((f) => f.status !== "pending");
+
+  function FollowUpRow({ f }: { f: FollowUp }) {
+    const late = f.status === "pending" && f.due_date && f.due_date < today;
+    return (
+      <div className={`fu ${f.status}`}>
+        <input
+          type="checkbox"
+          checked={f.status === "done"}
+          onChange={() => setStatus(f, f.status === "done" ? "pending" : "done")}
+          aria-label="Mark as done"
+        />
+        <div className="body">
+          <div className="text">
+            {f.body}
+            {f.source === "ai" && <span className="tag ai">AI</span>}
+          </div>
+          <div className="meta">
+            {f.owner || "No owner"}
+            {f.due_date && <> · <span className={late ? "overdue" : ""}>{late ? "overdue since " : "due "}{formatDate(f.due_date)}</span></>}
+            {" · "}
+            <button type="button" className="link" style={{ fontSize: 12.5 }}
+                    onClick={() => setStatus(f, f.status === "dropped" ? "pending" : "dropped")}>
+              {f.status === "dropped" ? "restore" : "drop"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main>
-      <p className="muted"><a href="/">← All clients</a></p>
+      <p style={{ margin: "0 0 14px" }}><a href="/">← All clients</a></p>
 
-      <div className="card">
-        <div style={{ fontSize: 20, fontWeight: 700 }}>{client.name}</div>
-        <div className="muted">
-          {client.company || "no company"}
-          {client.email ? ` · ${client.email}` : ""}
+      <div className="page-head">
+        <div>
+          <h1>{client.name}</h1>
+          <p>
+            {client.company || "No company"}
+            {client.email ? <> · <a href={`mailto:${client.email}`}>{client.email}</a></> : ""}
+            {" · "}{meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+          </p>
         </div>
-        <div className="muted" style={{ marginTop: 8 }}>
-          {meetings.length} meetings · {pending.length} pending follow-ups
-        </div>
-        {client.notes && (
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-            {client.notes}
-          </div>
-        )}
       </div>
 
-      <h2>New meeting</h2>
-      <form className="card" onSubmit={addMeeting}>
-        <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
-          <button type="button" className={mode === "paste" ? "" : "ghost"} style={{ marginTop: 0 }}
-                  onClick={() => setMode("paste")}>
-            Paste transcript
-          </button>
-          <button type="button" className={mode === "audio" ? "" : "ghost"} style={{ marginTop: 0 }}
-                  onClick={() => setMode("audio")}>
-            Upload recording
-          </button>
+      {client.notes && (
+        <div className="panel" style={{ marginBottom: 24, background: "var(--paper)" }}>
+          <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes</div>
+          <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{client.notes}</div>
         </div>
-        <div className="grid2">
-          <div>
-            <label htmlFor="t">Title *</label>
-            <input id="t" value={title} onChange={(e) => setTitle(e.target.value)}
-                   placeholder="Q3 review call" required />
-          </div>
-          <div>
-            <label htmlFor="d">Date</label>
-            <input id="d" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-        </div>
-        {mode === "paste" ? (
-          <>
-            <label htmlFor="tr">Transcript *</label>
-            <textarea id="tr" value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                      placeholder="Paste the meeting conversation here..." required />
-          </>
-        ) : (
-          <>
-            <label htmlFor="au">Recording * (mp3, m4a, wav, webm, mp4 — max 25 MB)</label>
-            <input id="au" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*"
-                   onChange={(e) => setAudio(e.target.files?.[0] ?? null)} />
-          </>
-        )}
-        <button disabled={Boolean(saving)}>{saving || "Save + analyse"}</button>
-        {error && <p className="err">{error}</p>}
-      </form>
+      )}
 
-      <h2>Follow-up items</h2>
-      <form className="card" onSubmit={addFollowup}>
-        <label htmlFor="fb">New follow-up</label>
-        <input id="fb" value={fuBody} onChange={(e) => setFuBody(e.target.value)}
-               placeholder="e.g. Send updated proposal" required />
-        <div className="grid2">
-          <div>
-            <label htmlFor="fo">Owner</label>
-            <input id="fo" value={fuOwner} onChange={(e) => setFuOwner(e.target.value)} placeholder="Who's responsible" />
-          </div>
-          <div>
-            <label htmlFor="fd">Due date</label>
-            <input id="fd" type="date" value={fuDue} onChange={(e) => setFuDue(e.target.value)} />
-          </div>
-        </div>
-        <button disabled={fuSaving}>{fuSaving ? "Adding..." : "Add follow-up"}</button>
-      </form>
+      {error && <p className="err" style={{ marginBottom: 16 }}>{error}</p>}
 
-      <div className="card">
-        {followups.length === 0 && <p className="muted">No follow-ups yet.</p>}
-        {followups.map((f) => (
-          <div key={f.id} className={`fu ${f.status !== "pending" ? "done" : ""}`}>
-            <select
-              value={f.status}
-              onChange={(e) => setStatus(f, e.target.value as FollowUp["status"])}
-              style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}
-            >
-              <option value="pending">Pending</option>
-              <option value="done">Done</option>
-              <option value="dropped">Dropped</option>
-            </select>
-            <span className="body">
-              {f.body}
-              {f.owner && <span className="muted"> · {f.owner}</span>}
-              {f.due_date && <span className="muted"> · due {f.due_date}</span>}
-              {f.source === "ai" && <span className="tag">AI</span>}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <h2>Timeline</h2>
-      {meetings.length === 0 && <p className="muted">No meetings yet.</p>}
-      {meetings.map((m) => (
-        <div key={m.id} className="card">
-          <div className="row">
-            <strong>{m.title}</strong>
-            <span className="muted">
-              {m.meeting_date}
-              {m.source === "audio" ? " · from recording" : ""}
-            </span>
-          </div>
-          {m.summary ? (
-            <p style={{ marginBottom: 10 }}>{m.summary}</p>
-          ) : (
-            <p className="muted">Not analysed yet.</p>
-          )}
-          {m.topics?.length > 0 && (
-            <div>{m.topics.map((t) => <span key={t} className="tag">{t}</span>)}</div>
-          )}
-          {m.concerns?.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div className="muted" style={{ marginBottom: 4 }}>Concerns:</div>
-              {m.concerns.map((c, i) => <span key={i} className="tag warn">{c}</span>)}
+      <div className="client-layout">
+        <div>
+          <form className="panel" onSubmit={addMeeting}>
+            <div className="panel-title"><h3>Add a meeting</h3></div>
+            <div className="tabs">
+              <button type="button" className={mode === "paste" ? "on" : ""} onClick={() => setMode("paste")}>Paste transcript</button>
+              <button type="button" className={mode === "audio" ? "on" : ""} onClick={() => setMode("audio")}>Upload recording</button>
             </div>
-          )}
-          <button type="button" className="ghost" disabled={analysing === m.id}
-                  onClick={() => reanalyse(m.id)}>
-            {analysing === m.id ? "Analysing..." : m.summary ? "Re-analyse" : "Analyse"}
-          </button>
+            <div className="grid2">
+              <div>
+                <label htmlFor="t">Title</label>
+                <input id="t" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Quarterly review" required />
+              </div>
+              <div>
+                <label htmlFor="d">Date</label>
+                <input id="d" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+            </div>
+            {mode === "paste" ? (
+              <>
+                <label htmlFor="tr">Transcript</label>
+                <textarea id="tr" value={transcript} onChange={(e) => setTranscript(e.target.value)}
+                          placeholder="Paste the conversation here…" required />
+              </>
+            ) : (
+              <>
+                <label htmlFor="au">Recording</label>
+                <input id="au" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*"
+                       onChange={(e) => setAudio(e.target.files?.[0] ?? null)} />
+                <p className="note" style={{ marginTop: 6, fontSize: 13 }}>mp3, m4a, wav, webm or mp4 · up to 25 MB</p>
+              </>
+            )}
+            <div className="form-actions">
+              <button disabled={Boolean(saving)}>{saving || "Save and analyse"}</button>
+            </div>
+          </form>
+
+          <div className="panel">
+            <div className="panel-title">
+              <h3>Meetings</h3>
+              <span className="count">newest first</span>
+            </div>
+            {meetings.length === 0 && <div className="empty" style={{ padding: "12px 0" }}>No meetings yet.</div>}
+            {meetings.map((m) => (
+              <article key={m.id} className="meeting">
+                <div className="row" style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <h3>{m.title}</h3>
+                    <div className="meeting-meta">
+                      {formatDate(m.meeting_date)}{m.source === "audio" ? " · from a recording" : ""}
+                    </div>
+                  </div>
+                  <button type="button" className="ghost small" disabled={analysing === m.id}
+                          onClick={() => reanalyse(m.id)}>
+                    {analysing === m.id ? "Analysing…" : m.summary ? "Re-analyse" : "Analyse"}
+                  </button>
+                </div>
+                {m.summary ? <p>{m.summary}</p> : <p className="muted">Not analysed yet.</p>}
+                {m.topics?.length > 0 && (
+                  <div>{m.topics.map((t) => <span key={t} className="tag">{t}</span>)}</div>
+                )}
+                {m.concerns?.length > 0 && (
+                  <>
+                    <div className="label-sm">Concerns</div>
+                    <div>{m.concerns.map((c, i) => <span key={i} className="tag warn">{c}</span>)}</div>
+                  </>
+                )}
+              </article>
+            ))}
+          </div>
         </div>
-      ))}
+
+        <aside>
+          <div className="panel">
+            <div className="panel-title">
+              <h3>Follow-ups</h3>
+              <span className="count">{open.length} open</span>
+            </div>
+            {followups.length === 0 && <p className="muted" style={{ margin: 0 }}>Nothing to follow up on yet.</p>}
+            {open.map((f) => <FollowUpRow key={f.id} f={f} />)}
+            {closed.length > 0 && (
+              <details style={{ marginTop: 10 }}>
+                <summary className="muted" style={{ cursor: "pointer" }}>{closed.length} done or dropped</summary>
+                {closed.map((f) => <FollowUpRow key={f.id} f={f} />)}
+              </details>
+            )}
+
+            <form onSubmit={addFollowup} style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+              <label htmlFor="fb">Add a follow-up</label>
+              <input id="fb" value={fuBody} onChange={(e) => setFuBody(e.target.value)} placeholder="Send the updated proposal" required />
+              <div className="grid2">
+                <div>
+                  <label htmlFor="fo">Owner</label>
+                  <input id="fo" value={fuOwner} onChange={(e) => setFuOwner(e.target.value)} placeholder="Who" />
+                </div>
+                <div>
+                  <label htmlFor="fd">Due</label>
+                  <input id="fd" type="date" value={fuDue} onChange={(e) => setFuDue(e.target.value)} />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button className="ghost" disabled={fuSaving}>{fuSaving ? "Adding…" : "Add"}</button>
+              </div>
+            </form>
+          </div>
+        </aside>
+      </div>
     </main>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabaseReady } from "@/lib/supabase";
 import { api, apiReady, type Client, type Dashboard, type SearchHit } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
@@ -19,6 +20,7 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [showNew, setShowNew] = useState(false);
 
   async function load() {
     setError("");
@@ -73,6 +75,7 @@ export default function HomePage() {
     }
 
     setSaving(false);
+    setShowNew(false);
     setName("");
     setCompany("");
     setEmail("");
@@ -97,92 +100,104 @@ export default function HomePage() {
     setSearching(false);
   }
 
+  const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
   return (
     <main>
-      <div className="card">
-        <div className="row">
-          <div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{clients.length}</div>
-            <div className="muted">Clients</div>
+      <div className="page-head">
+        <div>
+          <h1>Your clients</h1>
+          <p>{today}</p>
+        </div>
+        {!showNew && (
+          <button type="button" onClick={() => setShowNew(true)} disabled={!supabaseReady || !apiReady}>
+            + New client
+          </button>
+        )}
+      </div>
+
+      {showNew && (
+        <form className="panel" onSubmit={addClient} style={{ marginBottom: 24 }}>
+          <div className="panel-title"><h3>New client</h3></div>
+          <div className="grid2">
+            <div>
+              <label htmlFor="n">Name</label>
+              <input id="n" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah Khan" required autoFocus />
+            </div>
+            <div>
+              <label htmlFor="c">Company</label>
+              <input id="c" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="BrightPath Logistics" />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{counts.meetings}</div>
-            <div className="muted">Meetings</div>
+          <label htmlFor="e">Email</label>
+          <input id="e" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sarah@brightpath.com" />
+          <label htmlFor="notes">Notes</label>
+          <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minHeight: 80 }}
+                    placeholder="How you met, what they care about, anything worth remembering…" />
+          <div className="form-actions">
+            <button disabled={saving}>{saving ? "Saving…" : "Save client"}</button>
+            <button type="button" className="ghost" onClick={() => setShowNew(false)}>Cancel</button>
           </div>
-          <div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{counts.pending}</div>
-            <div className="muted">Pending follow-ups</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{counts.overdue}</div>
-            <div className="muted">Overdue</div>
-          </div>
+        </form>
+      )}
+
+      {error && <p className="err" style={{ marginBottom: 16 }}>{error}</p>}
+
+      <div className="stats">
+        <div className="stat"><div className="num">{clients.length}</div><div className="label">Clients</div></div>
+        <div className="stat"><div className="num">{counts.meetings}</div><div className="label">Meetings</div></div>
+        <div className="stat"><div className="num">{counts.pending}</div><div className="label">Open follow-ups</div></div>
+        <div className={`stat ${counts.overdue > 0 ? "alert" : ""}`}>
+          <div className="num">{counts.overdue}</div><div className="label">Overdue</div>
         </div>
       </div>
 
-      <h2>New client</h2>
-      <form className="card" onSubmit={addClient}>
-        <div className="grid2">
-          <div>
-            <label htmlFor="n">Name *</label>
-            <input id="n" value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div>
-            <label htmlFor="c">Company</label>
-            <input id="c" value={company} onChange={(e) => setCompany(e.target.value)} />
-          </div>
-        </div>
-        <label htmlFor="e">Email</label>
-        <input id="e" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <label htmlFor="notes">Notes</label>
-        <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Anything worth remembering about this client..." />
-        <button disabled={saving || !supabaseReady || !apiReady}>{saving ? "Saving..." : "Add client"}</button>
-        {error && <p className="err">{error}</p>}
-      </form>
-
-      <h2>Search meetings</h2>
-      <form className="card" onSubmit={runSearch}>
-        <label htmlFor="s">Keyword</label>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input id="s" value={search} onChange={(e) => setSearch(e.target.value)}
-                 placeholder="e.g. budget, timeline, pricing..." style={{ flex: 1 }} />
-          <button disabled={searching} style={{ marginTop: 0 }}>
-            {searching ? "Searching..." : "Search"}
-          </button>
-        </div>
-        {searchResults !== null && (
-          <div style={{ marginTop: 14 }}>
-            {searchResults.length === 0 && <p className="muted">No meetings match "{search}".</p>}
+      <div className="section">
+        <form className="search" onSubmit={runSearch}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
+                 placeholder="Search meetings, e.g. “budget”" aria-label="Search meetings" />
+        </form>
+        {searching && <p className="muted" style={{ marginTop: 12 }}>Searching…</p>}
+        {searchResults !== null && !searching && (
+          <div className="list" style={{ marginTop: 12 }}>
+            {searchResults.length === 0 && <div className="empty">Nothing matches “{search}”.</div>}
             {searchResults.map((r) => (
-              <a key={r.meeting_id} href={`/clients/${r.client_id}`} className="card" style={{ display: "block", color: "inherit" }}>
-                <div className="row">
-                  <strong>{r.title}</strong>
-                  <span className="muted">{r.client_name} · {r.meeting_date}</span>
+              <a key={r.meeting_id} href={`/clients/${r.client_id}`} className="list-item">
+                <div>
+                  <div className="title">{r.title}</div>
+                  <div className="sub">{r.client_name} · {formatDate(r.meeting_date)} · found in {r.matched_in}</div>
+                  <div style={{ marginTop: 6, fontSize: 14, color: "var(--ink-soft)" }}>{r.snippet}</div>
                 </div>
-                <p className="muted" style={{ margin: "6px 0 0" }}>
-                  <span className="tag">{r.matched_in}</span> {r.snippet}
-                </p>
+                <span className="chev">›</span>
               </a>
             ))}
           </div>
         )}
-      </form>
+      </div>
 
-      <h2>Clients</h2>
-      {loading && <p className="muted">Loading...</p>}
-      {!loading && clients.length === 0 && !error && (
-        <p className="muted">No clients yet. Add one above.</p>
-      )}
-      {clients.map((c) => (
-        <a key={c.id} href={`/clients/${c.id}`} className="card" style={{ display: "block", color: "inherit" }}>
-          <div style={{ fontWeight: 600 }}>{c.name}</div>
-          <div className="muted">
-            {c.company || "no company"}
-            {c.email ? ` · ${c.email}` : ""}
-          </div>
-        </a>
-      ))}
+      <div className="section">
+        <div className="section-head">
+          <h2>All clients</h2>
+        </div>
+        <div className="list">
+          {loading && <div className="empty">Loading…</div>}
+          {!loading && clients.length === 0 && !error && (
+            <div className="empty">No clients yet. Add your first one to get started.</div>
+          )}
+          {clients.map((c) => (
+            <a key={c.id} href={`/clients/${c.id}`} className="list-item">
+              <div>
+                <div className="title">{c.name}</div>
+                <div className="sub">
+                  {c.company || "No company"}
+                  {c.email ? ` · ${c.email}` : ""}
+                </div>
+              </div>
+              <span className="chev">›</span>
+            </a>
+          ))}
+        </div>
+      </div>
     </main>
   );
 }

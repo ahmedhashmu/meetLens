@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
-import AccountBadge from "./AccountBadge";
+import Shell from "./Shell";
+
+const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans" });
+const serif = Source_Serif_4({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-serif" });
 
 export const metadata: Metadata = {
   title: "MeetLens",
@@ -10,23 +14,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${sans.variable} ${serif.variable}`}>
       <body>
         <AuthProvider>
-          <div className="wrap">
-            <header className="top">
-              <div className="row" style={{ alignItems: "flex-start" }}>
-                <div>
-                  <h1>
-                    <a href="/" style={{ color: "inherit" }}>MeetLens</a>
-                  </h1>
-                  <p>Client meeting notes → summary + follow-up items · SPM Group 08</p>
-                </div>
-                <AccountBadge />
-              </div>
-            </header>
-            {children}
-          </div>
+          <Shell>{children}</Shell>
         </AuthProvider>
       </body>
     </html>
